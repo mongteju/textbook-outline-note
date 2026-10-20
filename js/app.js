@@ -6,9 +6,9 @@ import {
   DEFAULT_SETTINGS,
   getFormatSampleLabel,
   computeHierarchicalLabels
-} from './hierarchy.js';
-import { StorageManager } from './storage.js';
-import { OutlineEditor } from './editor.js';
+} from './hierarchy.js?v=20261020_3';
+import { StorageManager } from './storage.js?v=20261020_3';
+import { OutlineEditor } from './editor.js?v=20261020_3';
 
 const INTERACTIVE_STEPS = [
   {

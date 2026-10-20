@@ -220,6 +220,10 @@ export function computeAutoNumbers(items, presets = ALL_HEAD_PRESETS, autoNumber
   });
 }
 
+export function computeHierarchicalLabels(items, presets = ALL_HEAD_PRESETS, autoNumbering = true) {
+  return computeAutoNumbers(items, presets, autoNumbering).map((it) => it.prefix || '');
+}
+
 /**
  * 사용자가 직접 입력한 앞머리 번호('1. ', '1) ', '(1) ', '가. ', '가) ', '(가) ', 'Ⅰ. ' 등)를 감지해
  * 해당하는 위계 레벨과 본문 텍스트를 분리해주는 유틸리티 (붙여넣기 보조용)
