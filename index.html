@@ -8,8 +8,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Noto+Serif+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./styles.css" />
-  <!-- Google Identity Services (OAuth 2.0 & OIDC 공식 SDK) -->
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
   <!-- 1. 초기 로그인 화면: 오직 Google OAuth 2.0 & OIDC 로그인 단일 버튼만 제공 -->
@@ -78,8 +76,18 @@
       <div class="apple-segmented" id="depthFilterGroup" role="group" aria-label="위계 단계 보기"></div>
     </div>
 
-    <!-- 우측: 가이드, 저장, A4 인쇄, 계정 -->
+    <!-- 우측: 교사용 학급 뷰어, 가이드, 저장, A4 인쇄, 계정 -->
     <div class="toolbar-section right">
+      <button type="button" id="teacherViewerBtn" class="apple-pill-btn teacher-mode-btn is-hidden" title="교사용 학급 목차 뷰어 및 일괄 인쇄">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+        <span>학급 뷰어 · 일괄 인쇄</span>
+      </button>
+
       <button type="button" id="openGuideBtn" class="apple-icon-btn subtle" title="사용 가이드">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="9"/>
@@ -315,6 +323,14 @@
       <div class="sheet-body">
         <div id="currentAccountCard" class="current-account-card"></div>
 
+        <div class="apple-group-label">학급 및 학번 설정 (학생 실시간 공유)</div>
+        <div class="apple-inset-group padded">
+          <div id="studentClassSummary" class="student-class-summary">등록된 반 코드가 없습니다.</div>
+          <button type="button" id="editStudentClassBtn" class="apple-btn-secondary full-width-btn">
+            반 코드 · 학번 수정하기
+          </button>
+        </div>
+
         <div class="apple-group-label">Google 계정 전환</div>
         <div class="apple-inset-group padded">
           <div id="savedProfilesList" class="saved-profiles-list"></div>
@@ -327,6 +343,86 @@
       <div class="sheet-bottom">
         <button type="button" id="logoutBtn" class="apple-btn-danger">로그아웃 (로그인 화면으로)</button>
         <button type="button" class="apple-btn-primary" onclick="document.getElementById('closeAuthBtn').click()">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 학생 최초 1회 반 코드 · 학번 등록 모달 -->
+  <div id="studentClassModal" class="apple-modal-backdrop is-hidden no-print" role="dialog" aria-modal="true">
+    <div class="apple-sheet prompt-sheet student-class-sheet">
+      <h3>우리 반 등록 (최초 1회)</h3>
+      <p class="sheet-subdesc">한 번만 입력해 두면 작성한 목차가 선생님 화면에 자동으로 공유되어 인쇄해 나눠주실 수 있습니다.</p>
+      <form id="studentClassForm" class="student-class-form">
+        <label class="apple-field-label">
+          <span>반 코드</span>
+          <input type="text" id="studentClassCodeInput" class="apple-input" placeholder="예: 1-3" required />
+        </label>
+        <label class="apple-field-label">
+          <span>학번</span>
+          <input type="text" id="studentNumberInput" class="apple-input" placeholder="예: 10301" required />
+        </label>
+        <label class="apple-field-label">
+          <span>이름</span>
+          <input type="text" id="studentNameInput" class="apple-input" placeholder="예: 김민준" required />
+        </label>
+        <div class="prompt-actions">
+          <button type="button" id="skipStudentClassBtn" class="apple-btn-secondary">나중에</button>
+          <button type="submit" class="apple-btn-primary">등록 완료</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 교사용 학급 뷰어 (읽기 전용) 및 학생 목차 일괄 인쇄 모달 -->
+  <div id="teacherViewerModal" class="apple-modal-backdrop is-hidden no-print" role="dialog" aria-modal="true">
+    <div class="teacher-viewer-window">
+      <div class="teacher-viewer-header">
+        <div class="tv-header-left">
+          <span class="tv-role-badge">교사 전용 뷰어 (읽기 전용)</span>
+          <h3>우리 반 학생 목차 열람 및 일괄 인쇄</h3>
+        </div>
+        <div class="tv-header-actions">
+          <select id="tvClassFilterSelect" class="apple-select">
+            <option value="ALL">전체 학급</option>
+          </select>
+          <button type="button" id="tvRefreshBtn" class="apple-btn-secondary">새로고침</button>
+          <button type="button" id="tvSeedSampleBtn" class="apple-btn-secondary" title="테스트용 예시 학생 3명 데이터를 생성합니다">예시 학생 불러오기</button>
+          <button type="button" id="tvBatchPrintBtn" class="apple-pill-btn primary">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 6 3 18 3 18 9"/>
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+              <rect x="6" y="14" width="12" height="7" rx="1"/>
+            </svg>
+            <span id="tvBatchPrintBtnLabel">선택 학생 일괄 인쇄 (0건)</span>
+          </button>
+          <button type="button" id="closeTeacherViewerBtn" class="apple-close-circle" title="닫기">
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <line x1="2" y1="2" x2="12" y2="12"/><line x1="12" y1="2" x2="2" y2="12"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="teacher-viewer-body">
+        <!-- 좌측: 학생 및 문서 체크박스 리스트 -->
+        <aside class="tv-student-sidebar">
+          <div class="tv-sidebar-toolbar">
+            <label class="tv-select-all-label">
+              <input type="checkbox" id="tvSelectAllCheckbox" checked />
+              <span>전체 문서 선택</span>
+            </label>
+            <span id="tvStudentCountBadge" class="tv-count-badge">0명</span>
+          </div>
+          <div id="tvStudentListContainer" class="tv-student-list"></div>
+        </aside>
+
+        <!-- 우측: 읽기 전용 A4 문서 미리보기 (이름표 스탬프 포함) -->
+        <section class="tv-preview-stage">
+          <div class="tv-readonly-notice">
+            🔒 <strong>뷰어 전용 모드:</strong> 학생의 원본 문서는 수정되지 않습니다. 인쇄 시 우측 상단에 <strong>[학번 · 이름 · 문서제목]</strong>이 자동 인쇄되며 학생마다 새 A4 용지로 분리됩니다.
+          </div>
+          <div id="tvPreviewPaperWrap" class="tv-preview-paper-wrap"></div>
+        </section>
       </div>
     </div>
   </div>
@@ -346,6 +442,9 @@
       </div>
     </div>
   </div>
+
+  <!-- 교사용 일괄 인쇄 전용 다중 A4 컨테이너 (평소에는 숨김, 일괄 인쇄 시에만 출력) -->
+  <div id="batchPrintContainer" class="batch-print-container"></div>
 
   <script type="module" src="./js/app.js"></script>
 </body>

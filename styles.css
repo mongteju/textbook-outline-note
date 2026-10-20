@@ -1737,7 +1737,279 @@ body {
 }
 
 /* ==========================================
-   6. A4 규격 전용 인쇄 스타일 (날짜/페이지 정보 완전 제거)
+   5-B. 교사용 학급 뷰어 (읽기 전용) 및 학생 반 코드 등록 모달
+   ========================================== */
+.apple-pill-btn.teacher-mode-btn {
+  background: #1d1d1f;
+  color: #ffffff;
+  font-weight: 600;
+  gap: 6px;
+}
+
+.apple-pill-btn.teacher-mode-btn:hover {
+  background: #333336;
+}
+
+.student-class-summary {
+  font-size: 12.5px;
+  color: var(--apple-text);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.full-width-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.student-class-sheet {
+  width: 380px !important;
+}
+
+.sheet-subdesc {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: var(--apple-subtext);
+  line-height: 1.45;
+}
+
+.student-class-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.apple-field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--apple-subtext);
+}
+
+.teacher-viewer-window {
+  width: min(1240px, 95vw);
+  height: min(860px, 90vh);
+  background: #f5f5f7;
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.26);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 0.5px solid rgba(0, 0, 0, 0.14);
+}
+
+.teacher-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  background: #ffffff;
+  border-bottom: 0.5px solid var(--apple-hairline);
+  gap: 12px;
+}
+
+.tv-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tv-header-left h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--apple-text);
+}
+
+.tv-role-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0071e3;
+  background: rgba(0, 113, 227, 0.1);
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+.tv-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.teacher-viewer-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 310px 1fr;
+  min-height: 0;
+}
+
+.tv-student-sidebar {
+  background: #ffffff;
+  border-right: 0.5px solid var(--apple-hairline);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.tv-sidebar-toolbar {
+  padding: 10px 14px;
+  border-bottom: 0.5px solid var(--apple-hairline);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fbfbfd;
+}
+
+.tv-select-all-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--apple-text);
+  cursor: pointer;
+}
+
+.tv-count-badge {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--apple-subtext);
+}
+
+.tv-student-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tv-student-card {
+  border: 0.5px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  background: #fbfbfd;
+  overflow: hidden;
+}
+
+.tv-student-card-head {
+  padding: 8px 10px;
+  background: #f2f2f7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--apple-text);
+}
+
+.tv-student-class-pill {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #515154;
+  background: #e5e5ea;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.tv-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 0.5px solid rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  font-size: 12.5px;
+  transition: background 0.12s;
+}
+
+.tv-doc-item:hover {
+  background: rgba(0, 113, 227, 0.06);
+}
+
+.tv-doc-item.is-active {
+  background: rgba(0, 113, 227, 0.12);
+  font-weight: 600;
+}
+
+.tv-doc-title-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-preview-stage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 24px 36px;
+  align-items: center;
+}
+
+.tv-readonly-notice {
+  width: 100%;
+  max-width: 210mm;
+  margin-bottom: 14px;
+  padding: 9px 14px;
+  background: #ffffff;
+  border: 0.5px solid rgba(0, 113, 227, 0.25);
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: var(--apple-text);
+}
+
+.tv-preview-paper-wrap {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+/* 우측 상단 [학번 · 이름 · 문서제목] 자동 인쇄 스탬프 */
+.paper-doc-header-with-stamp {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 6px;
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.12);
+}
+
+.paper-doc-title-static {
+  margin: 0;
+  font-family: 'Noto Serif KR', 'Batang', '바탕', serif;
+  font-size: 18pt;
+  font-weight: 700;
+  color: #111111;
+  letter-spacing: -0.02em;
+}
+
+.student-print-stamp {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid #48484a;
+  border-radius: 6px;
+  font-family: 'Noto Sans KR', sans-serif;
+  font-size: 9.5pt;
+  font-weight: 600;
+  color: #1d1d1f;
+  background: #fafafa;
+  white-space: nowrap;
+}
+
+.batch-print-container {
+  display: none;
+}
+
+/* ==========================================
+   6. A4 규격 전용 인쇄 스타일 (날짜/페이지 정보 완전 제거 + 교사용 학생별 일괄 인쇄)
    ========================================== */
 @page {
   size: A4 portrait;
@@ -1761,10 +2033,43 @@ body {
     display: none !important;
   }
 
-  .workspace-stage {
+  /* 일반 단일 문서 인쇄 시 */
+  body:not(.is-batch-printing) .workspace-stage {
     padding: 0 !important;
     margin: 0 !important;
     display: block !important;
+  }
+
+  body:not(.is-batch-printing) .batch-print-container {
+    display: none !important;
+  }
+
+  /* 교사용 학생 목차 일괄 인쇄 모드 (학생마다 무조건 새 A4 용지에 출력) */
+  body.is-batch-printing .workspace-stage {
+    display: none !important;
+  }
+
+  body.is-batch-printing .batch-print-container {
+    display: block !important;
+    width: 210mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .batch-print-sheet {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    margin: 0 !important;
+    padding: 15mm 14mm !important;
+    box-sizing: border-box !important;
+    background: #ffffff !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  .batch-print-sheet:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
   }
 
   .a4-paper-sheet {

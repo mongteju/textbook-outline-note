@@ -12,6 +12,14 @@ const CURRENT_USER_KEY = `${STORAGE_PREFIX}current_user`;
 const LOGGED_IN_SESSION_KEY = `${STORAGE_PREFIX}is_logged_in`;
 const USERS_LIST_KEY = `${STORAGE_PREFIX}users_list`;
 const FIREBASE_CONFIG_KEY = `${STORAGE_PREFIX}firebase_config`;
+const CLASS_REGISTRY_KEY = `${STORAGE_PREFIX}class_registry`;
+const TEACHER_EMAILS_KEY = `${STORAGE_PREFIX}teacher_emails`;
+const CLASS_SYNC_API_BASE = 'https://team-ant-workout-pace.lijita95.workers.dev/api/outline-note';
+
+const DEFAULT_TEACHER_EMAILS = [
+  'benefit9495@gmail.com',
+  'lijita95@gmail.com'
+];
 
 const DEFAULT_USER = {
   uid: 'local_default_student',
@@ -162,6 +170,7 @@ export class StorageManager {
         this.syncToFirestore(uid, stateToSave);
       }
       if (!silent) {
+        this.syncStudentWorkspaceToClass(uid, stateToSave);
         this.onSyncChange('saved');
       }
       return true;
@@ -429,5 +438,254 @@ export class StorageManager {
     ws.settings = { ...DEFAULT_SETTINGS, ...(ws.settings || {}) };
     this.state = ws;
     this.saveWorkspace();
+  }
+
+  // --- 교사 계정 판별 및 학생 반 코드 / 학번 실시간 공유 ---
+
+  getTeacherEmails() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(TEACHER_EMAILS_KEY) || '[]');
+      return Array.from(new Set([...DEFAULT_TEACHER_EMAILS, ...saved].map((e) => e.toLowerCase())));
+    } catch {
+      return DEFAULT_TEACHER_EMAILS;
+    }
+  }
+
+  isTeacherAccount(user = this.currentUser) {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('teacher') === '1') return true;
+    if (!user || !user.email) return false;
+    return this.getTeacherEmails().includes(user.email.trim().toLowerCase());
+  }
+
+  getStudentClassKey(uid = this.currentUser?.uid) {
+    return `${STORAGE_PREFIX}student_class_${uid}`;
+  }
+
+  getStudentClassInfo(uid = this.currentUser?.uid) {
+    try {
+      const raw = localStorage.getItem(this.getStudentClassKey(uid));
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  hasCompletedStudentClassSetup(uid = this.currentUser?.uid) {
+    const info = this.getStudentClassInfo(uid);
+    return Boolean(info && info.classCode && info.studentNumber && info.studentName);
+  }
+
+  saveStudentClassInfo({ classCode, studentNumber, studentName }, uid = this.currentUser?.uid) {
+    const cleanInfo = {
+      classCode: String(classCode || '').trim(),
+      studentNumber: String(studentNumber || '').trim(),
+      studentName: String(studentName || this.currentUser?.displayName || '').trim(),
+      updatedAt: new Date().toISOString()
+    };
+    localStorage.setItem(this.getStudentClassKey(uid), JSON.stringify(cleanInfo));
+    this.syncStudentWorkspaceToClass(uid, this.state);
+    return cleanInfo;
+  }
+
+  getLocalClassRegistry() {
+    try {
+      const raw = localStorage.getItem(CLASS_REGISTRY_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  saveLocalClassRegistry(registry) {
+    try {
+      localStorage.setItem(CLASS_REGISTRY_KEY, JSON.stringify(registry));
+    } catch (e) {
+      console.warn('Failed to save local class registry:', e);
+    }
+  }
+
+  async syncStudentWorkspaceToClass(uid = this.currentUser?.uid, stateData = this.state) {
+    const classInfo = this.getStudentClassInfo(uid);
+    if (!classInfo || !classInfo.classCode) return;
+
+    const entry = {
+      uid,
+      classCode: classInfo.classCode,
+      studentNumber: classInfo.studentNumber,
+      studentName: classInfo.studentName,
+      email: this.currentUser?.email || '',
+      updatedAt: new Date().toISOString(),
+      workspace: {
+        folders: stateData.folders || [],
+        documents: stateData.documents || [],
+        presets: stateData.presets || ALL_HEAD_PRESETS,
+        settings: stateData.settings || DEFAULT_SETTINGS
+      }
+    };
+
+    // 1. 로컬 레지스트리에 즉시 저장
+    const reg = this.getLocalClassRegistry();
+    reg[uid] = entry;
+    this.saveLocalClassRegistry(reg);
+
+    // 2. 클라우드 학급 동기화 서버(Cloudflare D1)로 실시간 백그라운드 전송
+    try {
+      await fetch(`${CLASS_SYNC_API_BASE}/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry)
+      });
+    } catch {
+      // 오프라인 또는 로컬 환경에서도 로컬 레지스트리로 정상 동작
+    }
+  }
+
+  async fetchClassStudents(classCodeFilter = 'ALL') {
+    const mergedMap = new Map();
+
+    // 1. 로컬 레지스트리 데이터 로드
+    const localReg = this.getLocalClassRegistry();
+    Object.values(localReg).forEach((st) => {
+      if (st && st.uid) {
+        mergedMap.set(st.uid, st);
+      }
+    });
+
+    // 2. 클라우드 D1 서버에서 실시간 학급 학생 데이터 조회 후 최신본 병합
+    try {
+      const url = new URL(`${CLASS_SYNC_API_BASE}/class`);
+      if (classCodeFilter && classCodeFilter !== 'ALL') {
+        url.searchParams.set('classCode', classCodeFilter);
+      }
+      const res = await fetch(url.toString(), { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.students)) {
+          data.students.forEach((remoteSt) => {
+            if (!remoteSt || !remoteSt.uid) return;
+            const existing = mergedMap.get(remoteSt.uid);
+            if (!existing || new Date(remoteSt.updatedAt) >= new Date(existing.updatedAt)) {
+              mergedMap.set(remoteSt.uid, remoteSt);
+            }
+          });
+        }
+      }
+    } catch {
+      // 클라우드 미연결 시 로컬 데이터 사용
+    }
+
+    let list = Array.from(mergedMap.values());
+    if (classCodeFilter && classCodeFilter !== 'ALL') {
+      list = list.filter((s) => s.classCode === classCodeFilter);
+    }
+
+    list.sort((a, b) => {
+      if (a.classCode !== b.classCode) return String(a.classCode).localeCompare(String(b.classCode), 'ko');
+      return String(a.studentNumber).localeCompare(String(b.studentNumber), 'ko', { numeric: true });
+    });
+
+    return list;
+  }
+
+  seedSampleClassStudents(classCode = '1-3') {
+    const now = new Date().toISOString();
+    const samples = [
+      {
+        uid: 'sample_st_10301',
+        classCode,
+        studentNumber: '10301',
+        studentName: '김민준',
+        email: 'minjun10301@gmail.com',
+        updatedAt: now,
+        workspace: {
+          presets: JSON.parse(JSON.stringify(ALL_HEAD_PRESETS)),
+          settings: { ...DEFAULT_SETTINGS },
+          folders: [{ id: 'f_hist', name: '한국사', parentId: null, createdAt: now, expanded: true }],
+          documents: [
+            {
+              id: 'doc_s1',
+              folderId: 'f_hist',
+              title: 'Ⅰ. 전근대 한국사의 이해',
+              updatedAt: now,
+              items: [
+                { id: 'i1', level: 1, text: '전근대 한국사의 이해' },
+                { id: 'i2', level: 2, text: '고대 국가의 지배 체제' },
+                { id: 'i3', level: 3, text: '삼국의 성립과 발전' },
+                { id: 'i4', level: 4, text: '중앙 집권 국가의 특징' },
+                { id: 'i5', level: 5, text: '왕권의 강화와 율령 반포' },
+                { id: 'i6', level: 3, text: '남북국의 정치와 사회' },
+                { id: 'i7', level: 2, text: '고려의 통치 체제와 국제 질서' },
+                { id: 'i8', level: 3, text: '문벌 귀족 사회의 성립과 동요' }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        uid: 'sample_st_10302',
+        classCode,
+        studentNumber: '10302',
+        studentName: '이서연',
+        email: 'seoyeon10302@gmail.com',
+        updatedAt: now,
+        workspace: {
+          presets: JSON.parse(JSON.stringify(ALL_HEAD_PRESETS)),
+          settings: { ...DEFAULT_SETTINGS },
+          folders: [{ id: 'f_sci', name: '통합과학', parentId: null, createdAt: now, expanded: true }],
+          documents: [
+            {
+              id: 'doc_s2',
+              folderId: 'f_sci',
+              title: 'Ⅰ. 물질과 규칙성',
+              updatedAt: now,
+              items: [
+                { id: 's1', level: 1, text: '물질의 규칙성과 결합' },
+                { id: 's2', level: 2, text: '우주의 시작과 원소의 생성' },
+                { id: 's3', level: 3, text: '빅뱅 우주론과 기본 입자' },
+                { id: 's4', level: 4, text: '수소와 헬륨 원자핵의 형성' },
+                { id: 's5', level: 2, text: '원소의 주기성과 화학 결합' },
+                { id: 's6', level: 3, text: '이온 결합과 공유 결합의 성질' }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        uid: 'sample_st_10303',
+        classCode,
+        studentNumber: '10303',
+        studentName: '박지훈',
+        email: 'jihun10303@gmail.com',
+        updatedAt: now,
+        workspace: {
+          presets: JSON.parse(JSON.stringify(ALL_HEAD_PRESETS)),
+          settings: { ...DEFAULT_SETTINGS },
+          folders: [{ id: 'f_kor', name: '공통국어', parentId: null, createdAt: now, expanded: true }],
+          documents: [
+            {
+              id: 'doc_s3',
+              folderId: 'f_kor',
+              title: 'Ⅰ. 문학과 삶',
+              updatedAt: now,
+              items: [
+                { id: 'k1', level: 1, text: '문학의 본질과 갈래' },
+                { id: 'k2', level: 2, text: '서정 갈래의 이해와 감상' },
+                { id: 'k3', level: 3, text: '운율과 심상의 형상화 방식' },
+                { id: 'k4', level: 2, text: '서사 갈래의 이해와 감상' },
+                { id: 'k5', level: 3, text: '서술자의 시점과 갈등 구조' }
+              ]
+            }
+          ]
+        }
+      }
+    ];
+
+    const reg = this.getLocalClassRegistry();
+    samples.forEach((st) => {
+      reg[st.uid] = st;
+      this.syncStudentWorkspaceToClass(st.uid, st.workspace);
+    });
+    this.saveLocalClassRegistry(reg);
   }
 }

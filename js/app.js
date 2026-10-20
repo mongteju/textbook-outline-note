@@ -1,7 +1,12 @@
 // js/app.js
 // Apple HIG 스타일 미니멀 컨트롤러: 초기 로그인 화면, 자동+수동 저장(Ctrl+S), 4단계 인터랙티브 코치마크 가이드
 
-import { ALL_HEAD_PRESETS, DEFAULT_SETTINGS, getFormatSampleLabel } from './hierarchy.js';
+import {
+  ALL_HEAD_PRESETS,
+  DEFAULT_SETTINGS,
+  getFormatSampleLabel,
+  computeHierarchicalLabels
+} from './hierarchy.js';
 import { StorageManager } from './storage.js';
 import { OutlineEditor } from './editor.js';
 
@@ -28,9 +33,11 @@ const INTERACTIVE_STEPS = [
   }
 ];
 
-// Google OAuth 2.0 & OIDC 기본 Web Client ID (Google Cloud Console 설정값)
+// Google OAuth 2.0 & OIDC 기본 Web Client ID 및 승인된 Redirect URI 브릿지
 const DEFAULT_GOOGLE_OAUTH_CLIENT_ID =
   '138306417950-50vlg50lqrpc0pjso12222javsts3s6m.apps.googleusercontent.com';
+const AUTHORIZED_GOOGLE_OAUTH_REDIRECT_BRIDGE =
+  'https://team-ant-workout-pace.lijita95.workers.dev/api/auth/google/callback';
 
 class App {
   constructor() {
@@ -94,6 +101,7 @@ class App {
     this.syncBadgeEl = document.getElementById('syncBadge');
     this.syncStatusTextEl = document.getElementById('syncStatusText');
     this.depthFilterGroup = document.getElementById('depthFilterGroup');
+    this.teacherViewerBtn = document.getElementById('teacherViewerBtn');
     this.openGuideBtn = document.getElementById('openGuideBtn');
     this.saveDocBtn = document.getElementById('saveDocBtn');
     this.printBtn = document.getElementById('printBtn');
@@ -152,9 +160,33 @@ class App {
     this.authModal = document.getElementById('authModal');
     this.closeAuthBtn = document.getElementById('closeAuthBtn');
     this.currentAccountCard = document.getElementById('currentAccountCard');
+    this.studentClassSummary = document.getElementById('studentClassSummary');
+    this.editStudentClassBtn = document.getElementById('editStudentClassBtn');
     this.savedProfilesList = document.getElementById('savedProfilesList');
     this.realGoogleLoginBtn = document.getElementById('realGoogleLoginBtn');
     this.logoutBtn = document.getElementById('logoutBtn');
+
+    // 학생 최초 1회 반 코드 · 학번 등록 모달
+    this.studentClassModal = document.getElementById('studentClassModal');
+    this.studentClassForm = document.getElementById('studentClassForm');
+    this.studentClassCodeInput = document.getElementById('studentClassCodeInput');
+    this.studentNumberInput = document.getElementById('studentNumberInput');
+    this.studentNameInput = document.getElementById('studentNameInput');
+    this.skipStudentClassBtn = document.getElementById('skipStudentClassBtn');
+
+    // 교사용 학급 뷰어 및 일괄 인쇄 모달
+    this.teacherViewerModal = document.getElementById('teacherViewerModal');
+    this.tvClassFilterSelect = document.getElementById('tvClassFilterSelect');
+    this.tvRefreshBtn = document.getElementById('tvRefreshBtn');
+    this.tvSeedSampleBtn = document.getElementById('tvSeedSampleBtn');
+    this.tvBatchPrintBtn = document.getElementById('tvBatchPrintBtn');
+    this.tvBatchPrintBtnLabel = document.getElementById('tvBatchPrintBtnLabel');
+    this.closeTeacherViewerBtn = document.getElementById('closeTeacherViewerBtn');
+    this.tvSelectAllCheckbox = document.getElementById('tvSelectAllCheckbox');
+    this.tvStudentCountBadge = document.getElementById('tvStudentCountBadge');
+    this.tvStudentListContainer = document.getElementById('tvStudentListContainer');
+    this.tvPreviewPaperWrap = document.getElementById('tvPreviewPaperWrap');
+    this.batchPrintContainer = document.getElementById('batchPrintContainer');
 
     // 프롬프트 모달
     this.promptModal = document.getElementById('promptModal');
@@ -178,12 +210,19 @@ class App {
       this.clearCoachHighlights();
     }
     this.loginScreenGate.classList.remove('is-hidden');
-    this.initGoogleIdentityServices();
   }
 
   hideLoginGateAndStart() {
     this.loginScreenGate.classList.add('is-hidden');
     this.renderAll();
+
+    // 학생 계정인데 아직 반 코드 · 학번을 등록하지 않았다면 최초 1회 등록창 오픈
+    if (
+      !this.storage.isTeacherAccount() &&
+      !this.storage.hasCompletedStudentClassSetup(this.storage.currentUser.uid)
+    ) {
+      this.openStudentClassModal();
+    }
 
     // 해당 계정에서 최초 1회만 인터랙티브 가이드 자동 실행
     if (!this.storage.hasSeenOnboardingGuide(this.storage.currentUser.uid)) {
@@ -329,27 +368,23 @@ class App {
         this.hideLoginGateAndStart();
         return;
       } catch {
-        // GIS OAuth 2.0 & OIDC로 진행
+        // Google OAuth 2.0 Authorization Code & OIDC로 진행
       }
     }
 
-    // 2순위: Google Identity Services (GIS) OAuth 2.0 & OIDC 팝업 실행
-    this.initGoogleIdentityServices();
-    if (this.googleTokenClient) {
-      this.googleTokenClient.requestAccessToken({ prompt: 'select_account' });
-      return;
-    }
-
-    // 3순위: GIS 스크립트 로드 전이거나 차단된 경우 표준 Google OAuth 2.0 & OIDC 엔드포인트로 직접 이동
+    // Google OAuth 2.0 Authorization Code Flow (response_type=code는 JavaScript 출처 검사를 하지 않아 origin_mismatch 원천 방지)
     const clientId = this.getGoogleClientId();
-    const redirectUri = window.location.origin + window.location.pathname;
-    const nonce = Math.random().toString(36).substring(2) + Date.now().toString(36);
+    const returnUrl = window.location.origin + window.location.pathname;
+    const redirectUri =
+      clientId === DEFAULT_GOOGLE_OAUTH_CLIENT_ID
+        ? AUTHORIZED_GOOGLE_OAUTH_REDIRECT_BRIDGE
+        : returnUrl;
     const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
     authUrl.searchParams.set('client_id', clientId);
     authUrl.searchParams.set('redirect_uri', redirectUri);
-    authUrl.searchParams.set('response_type', 'token id_token');
+    authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('scope', 'openid email profile');
-    authUrl.searchParams.set('nonce', nonce);
+    authUrl.searchParams.set('state', `outline_note|${returnUrl}`);
     authUrl.searchParams.set('prompt', 'select_account');
     window.location.href = authUrl.toString();
   }
@@ -623,6 +658,87 @@ class App {
       });
     }
 
+    if (this.editStudentClassBtn) {
+      this.editStudentClassBtn.addEventListener('click', () => {
+        this.closeAuthModal();
+        this.openStudentClassModal();
+      });
+    }
+
+    // 학생 최초 1회 반 코드 · 학번 등록 모달 이벤트
+    if (this.studentClassForm) {
+      this.studentClassForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const classCode = this.studentClassCodeInput.value.trim();
+        const studentNumber = this.studentNumberInput.value.trim();
+        const studentName = this.studentNameInput.value.trim();
+        if (!classCode || !studentNumber || !studentName) return;
+        this.storage.saveStudentClassInfo({ classCode, studentNumber, studentName });
+        this.closeStudentClassModal();
+        this.renderUserHeader();
+        this.showSaveToast(`✓ [${classCode}반 ${studentNumber} ${studentName}] 등록 및 공유 완료`);
+      });
+    }
+
+    if (this.skipStudentClassBtn) {
+      this.skipStudentClassBtn.addEventListener('click', () => {
+        this.closeStudentClassModal();
+      });
+    }
+
+    // 교사용 학급 뷰어 · 일괄 인쇄 모달 이벤트
+    if (this.teacherViewerBtn) {
+      this.teacherViewerBtn.addEventListener('click', () => {
+        this.openTeacherViewerModal();
+      });
+    }
+
+    if (this.closeTeacherViewerBtn) {
+      this.closeTeacherViewerBtn.addEventListener('click', () => {
+        this.closeTeacherViewerModal();
+      });
+    }
+
+    if (this.tvRefreshBtn) {
+      this.tvRefreshBtn.addEventListener('click', () => {
+        this.refreshTeacherViewerStudents();
+      });
+    }
+
+    if (this.tvSeedSampleBtn) {
+      this.tvSeedSampleBtn.addEventListener('click', () => {
+        const filterVal = this.tvClassFilterSelect?.value;
+        const targetClass = filterVal && filterVal !== 'ALL' ? filterVal : '1-3';
+        this.storage.seedSampleClassStudents(targetClass);
+        this.refreshTeacherViewerStudents();
+        this.showSaveToast('✓ 예시 학생 3명(한국사·통합과학·공통국어) 목차를 불러왔습니다');
+      });
+    }
+
+    if (this.tvClassFilterSelect) {
+      this.tvClassFilterSelect.addEventListener('change', () => {
+        this.refreshTeacherViewerStudents();
+      });
+    }
+
+    if (this.tvSelectAllCheckbox) {
+      this.tvSelectAllCheckbox.addEventListener('change', () => {
+        const checked = this.tvSelectAllCheckbox.checked;
+        this.tvStudentListContainer
+          .querySelectorAll('.tv-doc-checkbox')
+          .forEach((cb) => {
+            cb.checked = checked;
+          });
+        this.updateTeacherBatchPrintButtonCount();
+      });
+    }
+
+    if (this.tvBatchPrintBtn) {
+      this.tvBatchPrintBtn.addEventListener('click', () => {
+        this.executeBatchPrintSelectedStudents();
+      });
+    }
+
     // JSON 백업
     this.exportJsonBtn.addEventListener('click', () => {
       const jsonStr = this.storage.exportWorkspaceJSON();
@@ -810,9 +926,22 @@ class App {
 
   renderUserHeader() {
     const user = this.storage.currentUser;
-    const initial = (user.displayName || user.email || '학')[0].toUpperCase();
+    const isTeacher = this.storage.isTeacherAccount(user);
+    const classInfo = this.storage.getStudentClassInfo(user.uid);
+    const initial = (classInfo?.studentName || user.displayName || user.email || '학')[0].toUpperCase();
     this.userAvatarText.textContent = initial;
-    this.userNameLabel.textContent = user.displayName || user.email;
+
+    if (isTeacher) {
+      this.userNameLabel.textContent = `${user.displayName || user.email} (교사)`;
+      if (this.teacherViewerBtn) this.teacherViewerBtn.classList.remove('is-hidden');
+    } else {
+      if (this.teacherViewerBtn) this.teacherViewerBtn.classList.add('is-hidden');
+      if (classInfo && classInfo.classCode && classInfo.studentNumber) {
+        this.userNameLabel.textContent = `${classInfo.studentNumber} ${classInfo.studentName} (${classInfo.classCode})`;
+      } else {
+        this.userNameLabel.textContent = user.displayName || user.email;
+      }
+    }
   }
 
   renderBreadcrumb() {
@@ -1341,14 +1470,24 @@ class App {
 
   populateAuthModal() {
     const user = this.storage.currentUser;
+    const isTeacher = this.storage.isTeacherAccount(user);
     this.currentAccountCard.innerHTML = `
       <div class="account-badge-lg">${this.escapeHTML((user.displayName || '학')[0].toUpperCase())}</div>
       <div class="account-info">
         <div class="account-name">${this.escapeHTML(user.displayName)}</div>
         <div class="account-email">${this.escapeHTML(user.email)}</div>
       </div>
-      <span class="account-status-pill">활성</span>
+      <span class="account-status-pill">${isTeacher ? '교사 계정' : '학생 계정'}</span>
     `;
+
+    if (this.studentClassSummary) {
+      const info = this.storage.getStudentClassInfo(user.uid);
+      if (info && info.classCode && info.studentNumber) {
+        this.studentClassSummary.textContent = `${info.classCode}반 · ${info.studentNumber} ${info.studentName} (실시간 공유 중)`;
+      } else {
+        this.studentClassSummary.textContent = '등록된 반 코드 · 학번이 없습니다.';
+      }
+    }
 
     const users = this.storage.getSavedUsersList();
     this.savedProfilesList.innerHTML = '';
@@ -1378,6 +1517,239 @@ class App {
       });
       this.savedProfilesList.appendChild(btn);
     });
+  }
+
+  // --- 학생 반 코드 · 학번 최초 1회 등록 모달 ---
+
+  openStudentClassModal() {
+    if (!this.studentClassModal) return;
+    const existing = this.storage.getStudentClassInfo(this.storage.currentUser.uid);
+    this.studentClassCodeInput.value = existing?.classCode || '1-3';
+    this.studentNumberInput.value = existing?.studentNumber || '';
+    this.studentNameInput.value = existing?.studentName || this.storage.currentUser.displayName || '';
+    this.studentClassModal.classList.remove('is-hidden');
+    setTimeout(() => this.studentNumberInput.focus(), 50);
+  }
+
+  closeStudentClassModal() {
+    if (!this.studentClassModal) return;
+    this.studentClassModal.classList.add('is-hidden');
+  }
+
+  // --- 교사용 학급 뷰어 (읽기 전용) 및 학생 목차 일괄 인쇄 ---
+
+  async openTeacherViewerModal() {
+    if (!this.teacherViewerModal) return;
+    this.teacherViewerModal.classList.remove('is-hidden');
+    await this.refreshTeacherViewerStudents();
+  }
+
+  closeTeacherViewerModal() {
+    if (!this.teacherViewerModal) return;
+    this.teacherViewerModal.classList.add('is-hidden');
+  }
+
+  async refreshTeacherViewerStudents() {
+    const selectedClass = this.tvClassFilterSelect ? this.tvClassFilterSelect.value : 'ALL';
+    const allStudents = await this.storage.fetchClassStudents('ALL');
+
+    // 학급 필터 드롭다운 갱신
+    if (this.tvClassFilterSelect) {
+      const classes = Array.from(new Set(allStudents.map((s) => s.classCode).filter(Boolean)));
+      this.tvClassFilterSelect.innerHTML = `<option value="ALL">전체 학급 (${allStudents.length}명)</option>`;
+      classes.forEach((cls) => {
+        const opt = document.createElement('option');
+        opt.value = cls;
+        opt.textContent = `${cls}반`;
+        if (cls === selectedClass) opt.selected = true;
+        this.tvClassFilterSelect.appendChild(opt);
+      });
+    }
+
+    const filteredStudents =
+      selectedClass && selectedClass !== 'ALL'
+        ? allStudents.filter((s) => s.classCode === selectedClass)
+        : allStudents;
+
+    this.currentTeacherStudents = filteredStudents;
+    if (this.tvStudentCountBadge) {
+      this.tvStudentCountBadge.textContent = `${filteredStudents.length}명`;
+    }
+
+    this.tvStudentListContainer.innerHTML = '';
+    if (filteredStudents.length === 0) {
+      this.tvStudentListContainer.innerHTML = `
+        <div style="padding:20px 12px;text-align:center;color:#86868b;font-size:12.5px;line-height:1.5;">
+          아직 공유된 학생 목차가 없습니다.<br/>
+          우측 상단 <strong>[예시 학생 불러오기]</strong>를 눌러 일괄 인쇄를 바로 테스트해 보실 수 있습니다.
+        </div>
+      `;
+      this.tvPreviewPaperWrap.innerHTML = '';
+      this.updateTeacherBatchPrintButtonCount();
+      return;
+    }
+
+    let firstPreviewTarget = null;
+
+    filteredStudents.forEach((st) => {
+      const docs = (st.workspace?.documents || []).filter(
+        (d) => (d.title && d.title.trim()) || (d.items && d.items.some((it) => it.text && it.text.trim()))
+      );
+      const displayDocs = docs.length > 0 ? docs : (st.workspace?.documents || []).slice(0, 1);
+
+      const card = document.createElement('div');
+      card.className = 'tv-student-card';
+      card.innerHTML = `
+        <div class="tv-student-card-head">
+          <span>${this.escapeHTML(st.studentNumber)} · ${this.escapeHTML(st.studentName)}</span>
+          <span class="tv-student-class-pill">${this.escapeHTML(st.classCode)}반</span>
+        </div>
+      `;
+
+      displayDocs.forEach((docObj) => {
+        if (!firstPreviewTarget) {
+          firstPreviewTarget = { student: st, doc: docObj };
+        }
+        const row = document.createElement('div');
+        row.className = 'tv-doc-item';
+        row.dataset.studentUid = st.uid;
+        row.dataset.docId = docObj.id;
+
+        const docTitle = docObj.title?.trim() || '제목 없는 목차';
+        row.innerHTML = `
+          <input
+            type="checkbox"
+            class="tv-doc-checkbox"
+            data-student-uid="${this.escapeHTML(st.uid)}"
+            data-doc-id="${this.escapeHTML(docObj.id)}"
+            checked
+          />
+          <span class="tv-doc-title-text">${this.escapeHTML(docTitle)}</span>
+        `;
+
+        const cb = row.querySelector('.tv-doc-checkbox');
+        cb.addEventListener('click', (e) => e.stopPropagation());
+        cb.addEventListener('change', () => this.updateTeacherBatchPrintButtonCount());
+
+        row.addEventListener('click', () => {
+          this.tvStudentListContainer
+            .querySelectorAll('.tv-doc-item')
+            .forEach((el) => el.classList.remove('is-active'));
+          row.classList.add('is-active');
+          this.renderReadOnlyStudentPreview(st, docObj);
+        });
+
+        card.appendChild(row);
+      });
+
+      this.tvStudentListContainer.appendChild(card);
+    });
+
+    if (firstPreviewTarget) {
+      const firstRow = this.tvStudentListContainer.querySelector('.tv-doc-item');
+      if (firstRow) firstRow.classList.add('is-active');
+      this.renderReadOnlyStudentPreview(firstPreviewTarget.student, firstPreviewTarget.doc);
+    }
+
+    this.updateTeacherBatchPrintButtonCount();
+  }
+
+  updateTeacherBatchPrintButtonCount() {
+    if (!this.tvBatchPrintBtnLabel || !this.tvStudentListContainer) return;
+    const checkedCount = this.tvStudentListContainer.querySelectorAll('.tv-doc-checkbox:checked').length;
+    this.tvBatchPrintBtnLabel.textContent = `선택 학생 일괄 인쇄 (${checkedCount}건)`;
+  }
+
+  buildStudentDocumentPaperHTML(student, docObj, forBatchPrint = false) {
+    const presets = this.storage.normalizePresets(student.workspace?.presets || ALL_HEAD_PRESETS);
+    const settings = { ...DEFAULT_SETTINGS, ...(student.workspace?.settings || {}) };
+    const items = Array.isArray(docObj.items) ? docObj.items : [];
+    const labels = computeHierarchicalLabels(items, presets, settings.autoNumbering !== false);
+    const docTitle = docObj.title?.trim() || '교과서 목차 정리';
+    const stampText = `${student.studentNumber || ''} · ${student.studentName || ''}  |  ${docTitle}`;
+
+    const colStyle = [
+      `column-count: ${settings.columns || 2}`,
+      `column-rule: ${settings.showColumnRule !== false ? '1px solid #8c8c8c' : 'none'}`,
+      `font-family: ${settings.fontFamily || DEFAULT_SETTINGS.fontFamily}`,
+      `line-height: ${settings.lineHeight || 1.55}`
+    ].join('; ');
+
+    const rowsHtml = items
+      .map((item, idx) => {
+        const preset = presets.find((p) => Number(p.level) === Number(item.level)) || presets[0];
+        const prefix = labels[idx] || '';
+        const rowStyle = [
+          `padding-left: ${preset.indent || 0}px`,
+          `color: ${preset.color || '#111111'}`,
+          `font-size: ${preset.fontSize || 12}pt`,
+          `font-weight: ${preset.fontWeight || 500}`
+        ].join('; ');
+        return `
+          <div class="outline-row" style="${rowStyle}">
+            ${prefix ? `<span class="outline-prefix">${this.escapeHTML(prefix)}</span>` : ''}
+            <div class="outline-text" contenteditable="false">${this.escapeHTML(item.text || '')}</div>
+          </div>
+        `;
+      })
+      .join('');
+
+    const wrapperClass = forBatchPrint ? 'batch-print-sheet' : 'a4-paper-sheet';
+
+    return `
+      <article class="${wrapperClass}">
+        <header class="paper-doc-header-with-stamp">
+          <h2 class="paper-doc-title-static">${this.escapeHTML(docTitle)}</h2>
+          <div class="student-print-stamp">${this.escapeHTML(stampText)}</div>
+        </header>
+        <div class="outline-columns-container" style="${colStyle}">
+          ${rowsHtml}
+        </div>
+      </article>
+    `;
+  }
+
+  renderReadOnlyStudentPreview(student, docObj) {
+    if (!this.tvPreviewPaperWrap) return;
+    this.tvPreviewPaperWrap.innerHTML = this.buildStudentDocumentPaperHTML(student, docObj, false);
+  }
+
+  executeBatchPrintSelectedStudents() {
+    if (!this.tvStudentListContainer || !this.batchPrintContainer) return;
+    const checkedBoxes = Array.from(
+      this.tvStudentListContainer.querySelectorAll('.tv-doc-checkbox:checked')
+    );
+
+    if (checkedBoxes.length === 0) {
+      alert('일괄 인쇄할 학생 문서를 1개 이상 선택해 주세요.');
+      return;
+    }
+
+    const sheetsHtml = [];
+    checkedBoxes.forEach((cb) => {
+      const uid = cb.dataset.studentUid;
+      const docId = cb.dataset.docId;
+      const student = (this.currentTeacherStudents || []).find((s) => s.uid === uid);
+      if (!student) return;
+      const docObj = (student.workspace?.documents || []).find((d) => d.id === docId);
+      if (!docObj) return;
+      sheetsHtml.push(this.buildStudentDocumentPaperHTML(student, docObj, true));
+    });
+
+    if (sheetsHtml.length === 0) return;
+
+    this.batchPrintContainer.innerHTML = sheetsHtml.join('\n');
+    document.body.classList.add('is-batch-printing');
+
+    const cleanup = () => {
+      document.body.classList.remove('is-batch-printing');
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+
+    setTimeout(() => {
+      window.print();
+    }, 80);
   }
 
   escapeHTML(str) {
