@@ -57,14 +57,16 @@ class App {
   }
 
   cacheDOM() {
-    // 초기 로그인 게이트 화면
+    // 초기 로그인 게이트 화면 (단일 Google 로그인 버튼 + Google 계정 선택 모달)
     this.loginScreenGate = document.getElementById('loginScreenGate');
-    this.gateSavedUsersWrap = document.getElementById('gateSavedUsersWrap');
-    this.gateSavedUsersList = document.getElementById('gateSavedUsersList');
-    this.gateLoginForm = document.getElementById('gateLoginForm');
-    this.gateNameInput = document.getElementById('gateNameInput');
-    this.gateEmailInput = document.getElementById('gateEmailInput');
     this.gateGoogleOAuthBtn = document.getElementById('gateGoogleOAuthBtn');
+    this.googleChooserModal = document.getElementById('googleChooserModal');
+    this.googleChooserList = document.getElementById('googleChooserList');
+    this.googleCustomEmailForm = document.getElementById('googleCustomEmailForm');
+    this.googleCustomEmailInput = document.getElementById('googleCustomEmailInput');
+    this.googleCancelCustomBtn = document.getElementById('googleCancelCustomBtn');
+    this.useAnotherGoogleBtn = document.getElementById('useAnotherGoogleBtn');
+    this.closeGoogleChooserBtn = document.getElementById('closeGoogleChooserBtn');
 
     // 저장 완료 토스트
     this.saveToast = document.getElementById('saveToast');
@@ -135,12 +137,7 @@ class App {
     this.closeAuthBtn = document.getElementById('closeAuthBtn');
     this.currentAccountCard = document.getElementById('currentAccountCard');
     this.savedProfilesList = document.getElementById('savedProfilesList');
-    this.googleProfileForm = document.getElementById('googleProfileForm');
-    this.profileNameInput = document.getElementById('profileNameInput');
-    this.profileEmailInput = document.getElementById('profileEmailInput');
     this.realGoogleLoginBtn = document.getElementById('realGoogleLoginBtn');
-    this.firebaseConfigTextarea = document.getElementById('firebaseConfigTextarea');
-    this.saveFirebaseConfigBtn = document.getElementById('saveFirebaseConfigBtn');
     this.logoutBtn = document.getElementById('logoutBtn');
 
     // 프롬프트 모달
@@ -157,21 +154,19 @@ class App {
     return Math.min(7, Math.max(5, Number(this.storage.state.settings.maxHeadLevels) || 5));
   }
 
-  // --- 초기 로그인 게이트 화면 제어 ---
+  // --- 초기 로그인 게이트 화면 및 Google 계정 선택 창 제어 ---
 
   showLoginGate() {
     if (this.guideActive) {
       this.guideCoachmark.classList.add('is-hidden');
       this.clearCoachHighlights();
     }
-    this.renderGateSavedUsers();
+    this.googleChooserModal.classList.add('is-hidden');
     this.loginScreenGate.classList.remove('is-hidden');
-    setTimeout(() => {
-      if (this.gateNameInput) this.gateNameInput.focus();
-    }, 60);
   }
 
   hideLoginGateAndStart() {
+    this.googleChooserModal.classList.add('is-hidden');
     this.loginScreenGate.classList.add('is-hidden');
     this.renderAll();
 
@@ -183,32 +178,53 @@ class App {
     }
   }
 
-  renderGateSavedUsers() {
-    const users = this.storage.getSavedUsersList();
-    if (!users || users.length === 0) {
-      this.gateSavedUsersWrap.classList.add('is-hidden');
-      return;
-    }
-    this.gateSavedUsersWrap.classList.remove('is-hidden');
-    this.gateSavedUsersList.innerHTML = '';
+  openGoogleAccountChooser() {
+    this.renderGoogleChooserAccounts();
+    this.googleCustomEmailForm.classList.add('is-hidden');
+    this.useAnotherGoogleBtn.classList.remove('is-hidden');
+    this.googleChooserModal.classList.remove('is-hidden');
+  }
 
+  closeGoogleAccountChooser() {
+    this.googleChooserModal.classList.add('is-hidden');
+  }
+
+  renderGoogleChooserAccounts() {
+    let users = this.storage.getSavedUsersList();
+    if (!users || users.length === 0) {
+      // 저장된 계정이 없을 때 기본 Google 계정을 1개 제공하여 클릭 1번으로도 즉시 시작 가능하게 함
+      users = [
+        {
+          uid: 'user_google_default',
+          displayName: 'Google 사용자',
+          email: 'my.account@gmail.com',
+          provider: 'google-local'
+        }
+      ];
+    }
+
+    this.googleChooserList.innerHTML = '';
     users.forEach((u) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'gate-user-chip';
+      btn.className = 'g-account-row';
+      const initial = (u.displayName || u.email || 'G')[0].toUpperCase();
       btn.innerHTML = `
-        <span class="chip-avatar">${this.escapeHTML((u.displayName || 'U')[0].toUpperCase())}</span>
-        <span class="chip-info">
+        <span class="g-row-avatar">${this.escapeHTML(initial)}</span>
+        <span class="g-row-meta">
           <strong>${this.escapeHTML(u.displayName)}</strong>
           <small>${this.escapeHTML(u.email)}</small>
         </span>
-        <span class="chip-arrow">→</span>
       `;
       btn.addEventListener('click', () => {
-        this.storage.switchToUserByUid(u.uid);
+        this.storage.switchOrLoginGoogleProfile({
+          displayName: u.displayName,
+          email: u.email
+        });
+        this.closeAuthModal();
         this.hideLoginGateAndStart();
       });
-      this.gateSavedUsersList.appendChild(btn);
+      this.googleChooserList.appendChild(btn);
     });
   }
 
@@ -261,37 +277,48 @@ class App {
   }
 
   bindGlobalEvents() {
-    // 초기 로그인 폼 제출
-    this.gateLoginForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const displayName = this.gateNameInput.value.trim();
-      const email = this.gateEmailInput.value.trim();
-      if (!displayName && !email) return;
-      this.storage.switchOrLoginGoogleProfile({ displayName, email });
-      this.gateNameInput.value = '';
-      this.gateEmailInput.value = '';
-      this.hideLoginGateAndStart();
-    });
-
-    // 초기 로그인 화면 Google 버튼
+    // 초기 로그인 화면: 단일 Google 로그인 버튼 클릭
     this.gateGoogleOAuthBtn.addEventListener('click', async () => {
       if (this.storage.cloudReady) {
         try {
           await this.storage.signInWithRealFirebaseGoogle();
           this.hideLoginGateAndStart();
           return;
-        } catch (err) {
-          alert(err.message);
-        }
-      } else {
-        // Firebase 미설정 시 이름/구글 이메일 입력칸 안내 포커스
-        if (this.gateNameInput.value.trim() && this.gateEmailInput.value.trim()) {
-          this.gateLoginForm.requestSubmit();
-        } else {
-          this.gateNameInput.focus();
-          this.showSaveToast('이름과 구글 이메일을 입력해 시작하세요');
+        } catch {
+          // Firebase 팝업 실패 또는 미설정 시 Google 계정 선택 모달 오픈
         }
       }
+      this.openGoogleAccountChooser();
+    });
+
+    // Google 계정 선택 창 내부 이벤트
+    this.useAnotherGoogleBtn.addEventListener('click', () => {
+      this.useAnotherGoogleBtn.classList.add('is-hidden');
+      this.googleCustomEmailForm.classList.remove('is-hidden');
+      this.googleCustomEmailInput.value = '';
+      setTimeout(() => this.googleCustomEmailInput.focus(), 30);
+    });
+
+    this.googleCancelCustomBtn.addEventListener('click', () => {
+      this.googleCustomEmailForm.classList.add('is-hidden');
+      this.useAnotherGoogleBtn.classList.remove('is-hidden');
+    });
+
+    this.closeGoogleChooserBtn.addEventListener('click', () => {
+      this.closeGoogleAccountChooser();
+    });
+
+    this.googleCustomEmailForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      let email = this.googleCustomEmailInput.value.trim().toLowerCase();
+      if (!email) return;
+      if (!email.includes('@')) {
+        email = `${email}@gmail.com`;
+      }
+      const displayName = email.split('@')[0];
+      this.storage.switchOrLoginGoogleProfile({ displayName, email });
+      this.closeAuthModal();
+      this.hideLoginGateAndStart();
     });
 
     // 로그아웃 버튼
@@ -502,47 +529,14 @@ class App {
       if (e.target === this.authModal) this.closeAuthModal();
     });
 
-    this.googleProfileForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const displayName = this.profileNameInput.value.trim();
-      const email = this.profileEmailInput.value.trim();
-      if (!email) return;
-      this.storage.switchOrLoginGoogleProfile({ displayName, email });
-      this.profileNameInput.value = '';
-      this.profileEmailInput.value = '';
-      this.renderAll();
-      this.populateAuthModal();
-      this.closeAuthModal();
-      if (!this.storage.hasSeenOnboardingGuide(this.storage.currentUser.uid)) {
-        setTimeout(() => this.startInteractiveGuide(0), 120);
-      }
-    });
-
-    this.realGoogleLoginBtn.addEventListener('click', async () => {
-      try {
-        await this.storage.signInWithRealFirebaseGoogle();
-        this.renderAll();
-        this.populateAuthModal();
+    if (this.realGoogleLoginBtn) {
+      this.realGoogleLoginBtn.addEventListener('click', () => {
         this.closeAuthModal();
-      } catch (err) {
-        alert(err.message);
-      }
-    });
-
-    this.saveFirebaseConfigBtn.addEventListener('click', () => {
-      const raw = this.firebaseConfigTextarea.value.trim();
-      if (!raw) {
-        this.storage.saveFirebaseConfig(null);
-        return;
-      }
-      try {
-        const parsed = JSON.parse(raw);
-        this.storage.saveFirebaseConfig(parsed);
-        alert('저장되었습니다.');
-      } catch {
-        alert('올바른 JSON 형식으로 입력해주세요.');
-      }
-    });
+        this.loginScreenGate.classList.remove('is-hidden');
+        this.openGoogleAccountChooser();
+        this.useAnotherGoogleBtn.click();
+      });
+    }
 
     // JSON 백업
     this.exportJsonBtn.addEventListener('click', () => {
@@ -1299,9 +1293,6 @@ class App {
       });
       this.savedProfilesList.appendChild(btn);
     });
-
-    const fbConfig = this.storage.getFirebaseConfig();
-    this.firebaseConfigTextarea.value = fbConfig ? JSON.stringify(fbConfig, null, 2) : '';
   }
 
   escapeHTML(str) {

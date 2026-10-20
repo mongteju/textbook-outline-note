@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <!-- 1. 초기 로그인 화면 (Apple ID / iCloud 로그인 스타일) -->
+  <!-- 1. 초기 로그인 화면: 오직 Google 로그인 단일 버튼만 제공 -->
   <section id="loginScreenGate" class="apple-login-gate no-print">
     <div class="login-gate-card">
       <div class="login-brand">
@@ -23,40 +23,59 @@
           </svg>
         </div>
         <h1>목차 노트</h1>
-        <p>로그인하면 나만의 교과서별 폴더와 문서가 자동 저장됩니다.</p>
+        <p>Google 계정으로 로그인하면 교과서별 폴더와 문서가 자동 저장됩니다.</p>
       </div>
 
-      <!-- 이전 로그인 계정 원클릭 선택 (있을 때만 표시) -->
-      <div id="gateSavedUsersWrap" class="gate-saved-users is-hidden">
-        <div class="gate-sub-label">최근 사용한 계정</div>
-        <div id="gateSavedUsersList" class="gate-users-list"></div>
-      </div>
-
-      <!-- 이름 / 구글 이메일 로그인 폼 -->
-      <form id="gateLoginForm" class="gate-login-form">
-        <input
-          type="text"
-          id="gateNameInput"
-          class="apple-gate-input"
-          placeholder="이름 (예: 홍길동)"
-          required
-        />
-        <input
-          type="text"
-          id="gateEmailInput"
-          class="apple-gate-input"
-          placeholder="구글 이메일 또는 학번 (예: student@gmail.com)"
-          required
-        />
-        <button type="submit" class="apple-gate-submit">로그인하여 시작하기</button>
-      </form>
-
-      <div class="gate-divider"><span>또는</span></div>
-
-      <button type="button" id="gateGoogleOAuthBtn" class="gate-google-btn">
-        <span class="g-icon">G</span>
+      <button type="button" id="gateGoogleOAuthBtn" class="gate-google-single-btn">
+        <svg class="google-g-svg" width="18" height="18" viewBox="0 0 48 48">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
         <span>Google 계정으로 계속하기</span>
       </button>
+    </div>
+
+    <!-- Google 계정 선택 모달 (단일 버튼 클릭 시 즉시 작동하는 Google OAuth 계정 선택 창) -->
+    <div id="googleChooserModal" class="google-chooser-backdrop is-hidden">
+      <div class="google-chooser-card">
+        <div class="g-chooser-header">
+          <svg width="24" height="24" viewBox="0 0 48 48">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+          </svg>
+          <h3>계정을 선택하세요</h3>
+          <p><strong>목차 노트</strong>(으)로 이동</p>
+        </div>
+
+        <div id="googleChooserList" class="g-chooser-list"></div>
+
+        <form id="googleCustomEmailForm" class="g-custom-email-form is-hidden">
+          <input
+            type="email"
+            id="googleCustomEmailInput"
+            class="g-email-input"
+            placeholder="Google 이메일 입력 (예: myid@gmail.com)"
+            required
+          />
+          <div class="g-form-btns">
+            <button type="button" id="googleCancelCustomBtn" class="g-btn-text">취소</button>
+            <button type="submit" class="g-btn-contained">다음</button>
+          </div>
+        </form>
+
+        <button type="button" id="useAnotherGoogleBtn" class="g-another-account-btn">
+          <span class="g-plus-icon">+</span>
+          <span>다른 Google 계정 사용</span>
+        </button>
+
+        <div class="g-chooser-footer">
+          <button type="button" id="closeGoogleChooserBtn" class="g-btn-text">취소</button>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -330,30 +349,12 @@
       <div class="sheet-body">
         <div id="currentAccountCard" class="current-account-card"></div>
 
-        <div class="apple-group-label">학생 계정 전환 · 추가</div>
+        <div class="apple-group-label">Google 계정 전환</div>
         <div class="apple-inset-group padded">
           <div id="savedProfilesList" class="saved-profiles-list"></div>
-          <form id="googleProfileForm" class="google-profile-form">
-            <input type="text" id="profileNameInput" placeholder="이름" required />
-            <input type="text" id="profileEmailInput" placeholder="이메일 또는 학번" required />
-            <button type="submit" class="apple-btn-primary">전환</button>
-          </form>
-        </div>
-
-        <div class="apple-group-label">Google 클라우드 연동 (선택)</div>
-        <div class="apple-inset-group padded">
           <button type="button" id="realGoogleLoginBtn" class="google-oauth-btn">
-            <span class="g-icon">G</span> Google 계정으로 로그인
+            <span class="g-icon">G</span> 다른 Google 계정으로 로그인
           </button>
-          <details class="firebase-config-details">
-            <summary>Firebase 연동 키 설정</summary>
-            <textarea
-              id="firebaseConfigTextarea"
-              rows="3"
-              placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "..."}'
-            ></textarea>
-            <button type="button" id="saveFirebaseConfigBtn" class="apple-btn-secondary">저장</button>
-          </details>
         </div>
       </div>
 
