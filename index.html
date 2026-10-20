@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>목차 노트</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Noto+Serif+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <!-- 1. 초기 로그인 화면 (Apple ID / iCloud 로그인 스타일) -->
+  <section id="loginScreenGate" class="apple-login-gate no-print">
+    <div class="login-gate-card">
+      <div class="login-brand">
+        <div class="login-app-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="8" y1="13" x2="16" y2="13"/>
+            <line x1="8" y1="17" x2="13" y2="17"/>
+          </svg>
+        </div>
+        <h1>목차 노트</h1>
+        <p>로그인하면 나만의 교과서별 폴더와 문서가 자동 저장됩니다.</p>
+      </div>
+
+      <!-- 이전 로그인 계정 원클릭 선택 (있을 때만 표시) -->
+      <div id="gateSavedUsersWrap" class="gate-saved-users is-hidden">
+        <div class="gate-sub-label">최근 사용한 계정</div>
+        <div id="gateSavedUsersList" class="gate-users-list"></div>
+      </div>
+
+      <!-- 이름 / 구글 이메일 로그인 폼 -->
+      <form id="gateLoginForm" class="gate-login-form">
+        <input
+          type="text"
+          id="gateNameInput"
+          class="apple-gate-input"
+          placeholder="이름 (예: 홍길동)"
+          required
+        />
+        <input
+          type="text"
+          id="gateEmailInput"
+          class="apple-gate-input"
+          placeholder="구글 이메일 또는 학번 (예: student@gmail.com)"
+          required
+        />
+        <button type="submit" class="apple-gate-submit">로그인하여 시작하기</button>
+      </form>
+
+      <div class="gate-divider"><span>또는</span></div>
+
+      <button type="button" id="gateGoogleOAuthBtn" class="gate-google-btn">
+        <span class="g-icon">G</span>
+        <span>Google 계정으로 계속하기</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- 저장 완료 토스트 알림 -->
+  <div id="saveToast" class="apple-save-toast is-hidden no-print">✓ 문서가 저장되었습니다</div>
+
+  <!-- 2. Apple HIG 스타일 상단 툴바 (인쇄 시 숨김) -->
+  <header class="apple-toolbar no-print">
+    <div class="toolbar-section left">
+      <button type="button" id="sidebarToggleBtn" class="apple-icon-btn" title="문서함 열기">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="16" rx="2.5"/>
+          <line x1="9" y1="4" x2="9" y2="20"/>
+        </svg>
+        <span class="btn-label">문서함</span>
+      </button>
+
+      <button type="button" id="quickNewDocBtn" class="apple-icon-btn" title="새 문서">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </button>
+
+      <div id="currentBreadcrumb" class="apple-breadcrumb"></div>
+      <span class="sync-status-wrap" title="작성하는 즉시 자동 저장됩니다">
+        <span id="syncBadge" class="apple-sync-dot"></span>
+        <span id="syncStatusText" class="sync-status-text">자동 저장됨</span>
+      </span>
+    </div>
+
+    <!-- 중앙: Apple Segmented Control (위계 단계별 숨기기/보기) -->
+    <div class="toolbar-section center">
+      <div class="apple-segmented" id="depthFilterGroup" role="group" aria-label="위계 단계 보기"></div>
+    </div>
+
+    <!-- 우측: 가이드, 저장, A4 인쇄, 계정 -->
+    <div class="toolbar-section right">
+      <button type="button" id="openGuideBtn" class="apple-icon-btn subtle" title="사용 가이드">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/>
+          <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2.5 2-2.5 3.5"/>
+          <circle cx="12" cy="17" r="0.6" fill="currentColor"/>
+        </svg>
+      </button>
+
+      <button type="button" id="saveDocBtn" class="apple-pill-btn secondary" title="문서 저장 (Ctrl+S · 자동 저장 지원)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+          <polyline points="17 21 17 13 7 13 7 21"/>
+          <polyline points="7 3 7 8 15 8"/>
+        </svg>
+        <span>저장</span>
+      </button>
+
+      <button type="button" id="printBtn" class="apple-pill-btn primary" title="A4 인쇄">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 6 3 18 3 18 9"/>
+          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+          <rect x="6" y="14" width="12" height="7" rx="1"/>
+        </svg>
+        <span>인쇄</span>
+      </button>
+
+      <button type="button" id="userAccountBtn" class="apple-avatar-btn" title="계정 관리 및 로그아웃">
+        <span id="userAvatarText" class="avatar-circle">기</span>
+        <span id="userNameLabel" class="avatar-name">학생</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- 좌측 macOS Finder 스타일 사이드바 -->
+  <div id="sidebarOverlay" class="sidebar-overlay no-print"></div>
+  <aside id="sidebarDrawer" class="apple-sidebar no-print" aria-label="폴더 및 문서">
+    <div class="sidebar-top">
+      <span class="sidebar-heading">문서함</span>
+      <button type="button" id="sidebarCloseBtn" class="apple-close-circle" title="닫기">
+        <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="2" y1="2" x2="12" y2="12"/><line x1="12" y1="2" x2="2" y2="12"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="sidebar-actions">
+      <button type="button" id="newFolderBtn" class="sidebar-btn">새 폴더</button>
+      <button type="button" id="newDocInSidebarBtn" class="sidebar-btn accent">새 문서</button>
+    </div>
+
+    <div id="folderTreeContainer" class="folder-tree-container"></div>
+
+    <div class="sidebar-bottom">
+      <button type="button" id="exportJsonBtn" class="sidebar-foot-link">파일로 백업</button>
+      <span class="foot-dot">·</span>
+      <button type="button" id="importJsonBtn" class="sidebar-foot-link">백업 불러오기</button>
+      <input type="file" id="importJsonInput" accept=".json" class="is-hidden" />
+    </div>
+  </aside>
+
+  <!-- 메인 캔버스: A4 2단 시트 -->
+  <main class="workspace-stage">
+    <div id="hiddenDepthNotice" class="apple-filter-banner is-hidden no-print">
+      <span class="notice-text">일부 위계만 표시 중</span>
+      <button type="button" id="resetDepthBtn" class="banner-action">전체 보기</button>
+    </div>
+
+    <article class="a4-paper-sheet" id="a4PaperSheet">
+      <header class="paper-doc-header">
+        <input
+          type="text"
+          id="docTitleInput"
+          class="doc-title-input"
+          placeholder="단원 또는 과목 제목"
+          spellcheck="false"
+        />
+      </header>
+
+      <section
+        id="outlineContainer"
+        class="outline-columns-container"
+        aria-label="목차 편집 영역"
+      ></section>
+    </article>
+  </main>
+
+  <!-- 하단 플로팅 독: 동그란 헤드 색상 + 아래 글자 크기 + 톱니바퀴 -->
+  <nav class="apple-floating-dock no-print" aria-label="헤드별 색상 및 글자 크기">
+    <div id="bottomHeadsDock" class="dock-heads-list"></div>
+    <div class="dock-sep"></div>
+    <button
+      type="button"
+      id="openSettingsBtn"
+      class="dock-settings-btn"
+      title="설정"
+      aria-label="설정"
+    >
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
+  </nav>
+
+  <!-- Apple HIG 스타일 인터랙티브 스텝 코치마크 (한 번에 하나의 기능만 직접 따라하게 안내) -->
+  <aside id="guideCoachmark" class="apple-coachmark is-hidden no-print" role="status" aria-live="polite">
+    <div class="coachmark-top">
+      <span id="coachStepBadge" class="coachmark-step">1 / 4</span>
+      <button type="button" id="coachSkipBtn" class="coachmark-skip">닫기</button>
+    </div>
+    <strong id="coachTitle" class="coachmark-title">교과 제목을 입력해보세요</strong>
+    <p id="coachDesc" class="coachmark-desc">위쪽 제목 칸에 과목 이름을 쓰고 Enter를 눌러보세요.</p>
+    <div class="coachmark-actions">
+      <div id="coachDots" class="coachmark-dots"></div>
+      <div class="coachmark-btn-group">
+        <button type="button" id="coachPrevBtn" class="coachmark-prev-btn">이전</button>
+        <button type="button" id="coachNextBtn" class="coachmark-next-btn">다음</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- macOS System Settings 스타일 세부 설정 모달 -->
+  <div id="settingsModal" class="apple-modal-backdrop is-hidden no-print" role="dialog" aria-modal="true">
+    <div class="apple-sheet settings-sheet">
+      <div class="sheet-top">
+        <h3>설정</h3>
+        <button type="button" id="closeSettingsBtn" class="apple-close-circle" title="닫기">
+          <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="2" y1="2" x2="12" y2="12"/><line x1="12" y1="2" x2="2" y2="12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="sheet-body">
+        <div class="apple-group-label">레이아웃 및 위계</div>
+        <div class="apple-inset-group">
+          <div class="apple-row">
+            <span>위계 단계 수</span>
+            <div class="row-control">
+              <select id="maxHeadLevelsSelect" class="apple-select">
+                <option value="5">5단계 (기본)</option>
+                <option value="6">6단계</option>
+                <option value="7">7단계 (최대)</option>
+              </select>
+              <button type="button" id="addHeadLevelQuickBtn" class="apple-mini-btn">+ 단계 추가</button>
+            </div>
+          </div>
+
+          <div class="apple-row">
+            <span>단 구성</span>
+            <select id="colCountSelect" class="apple-select">
+              <option value="2">2단 (한글 스타일)</option>
+              <option value="1">1단</option>
+            </select>
+          </div>
+
+          <div class="apple-row">
+            <span>가운데 구분선</span>
+            <input type="checkbox" id="colRuleCheckbox" class="apple-switch" checked />
+          </div>
+
+          <div class="apple-row">
+            <span>자동 번호 매김</span>
+            <input type="checkbox" id="autoNumberCheckbox" class="apple-switch" checked />
+          </div>
+
+          <div class="apple-row">
+            <span>글꼴</span>
+            <select id="fontFamilySelect" class="apple-select">
+              <option value="'Noto Serif KR', 'Batang', '바탕', serif">명조체</option>
+              <option value="'Noto Sans KR', 'Malgun Gothic', sans-serif">고딕체</option>
+            </select>
+          </div>
+
+          <div class="apple-row">
+            <span>줄 간격 (<span id="lineHeightVal">1.55</span>)</span>
+            <input type="range" id="lineHeightInput" class="apple-slider" min="1.2" max="2.2" step="0.05" value="1.55" />
+          </div>
+        </div>
+
+        <div class="apple-group-label">단축키</div>
+        <div class="apple-inset-group">
+          <div class="apple-row">
+            <span>위계 변경 단축키</span>
+            <select id="shortcutModSelect" class="apple-select">
+              <option value="Alt">Alt + 1 ~ 7</option>
+              <option value="CtrlShift">Ctrl + Shift + 1 ~ 7</option>
+            </select>
+          </div>
+
+          <div class="apple-row">
+            <span>Tab / Shift+Tab 들여쓰기</span>
+            <input type="checkbox" id="tabIndentCheckbox" class="apple-switch" checked />
+          </div>
+        </div>
+
+        <div class="apple-group-label">단계별 서식</div>
+        <div class="apple-inset-group table-wrap">
+          <table class="apple-table">
+            <thead>
+              <tr>
+                <th>단계</th>
+                <th>색상</th>
+                <th>번호 양식</th>
+                <th>들여쓰기</th>
+                <th>굵게</th>
+              </tr>
+            </thead>
+            <tbody id="detailedHeadTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="sheet-bottom">
+        <button type="button" id="resetPresetsBtn" class="apple-btn-secondary">기본값 복원</button>
+        <button type="button" class="apple-btn-primary" onclick="document.getElementById('closeSettingsBtn').click()">완료</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 계정 관리 모달 -->
+  <div id="authModal" class="apple-modal-backdrop is-hidden no-print" role="dialog" aria-modal="true">
+    <div class="apple-sheet auth-sheet">
+      <div class="sheet-top">
+        <h3>계정 및 동기화</h3>
+        <button type="button" id="closeAuthBtn" class="apple-close-circle">
+          <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="2" y1="2" x2="12" y2="12"/><line x1="12" y1="2" x2="2" y2="12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="sheet-body">
+        <div id="currentAccountCard" class="current-account-card"></div>
+
+        <div class="apple-group-label">학생 계정 전환 · 추가</div>
+        <div class="apple-inset-group padded">
+          <div id="savedProfilesList" class="saved-profiles-list"></div>
+          <form id="googleProfileForm" class="google-profile-form">
+            <input type="text" id="profileNameInput" placeholder="이름" required />
+            <input type="text" id="profileEmailInput" placeholder="이메일 또는 학번" required />
+            <button type="submit" class="apple-btn-primary">전환</button>
+          </form>
+        </div>
+
+        <div class="apple-group-label">Google 클라우드 연동 (선택)</div>
+        <div class="apple-inset-group padded">
+          <button type="button" id="realGoogleLoginBtn" class="google-oauth-btn">
+            <span class="g-icon">G</span> Google 계정으로 로그인
+          </button>
+          <details class="firebase-config-details">
+            <summary>Firebase 연동 키 설정</summary>
+            <textarea
+              id="firebaseConfigTextarea"
+              rows="3"
+              placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "..."}'
+            ></textarea>
+            <button type="button" id="saveFirebaseConfigBtn" class="apple-btn-secondary">저장</button>
+          </details>
+        </div>
+      </div>
+
+      <div class="sheet-bottom">
+        <button type="button" id="logoutBtn" class="apple-btn-danger">로그아웃 (로그인 화면으로)</button>
+        <button type="button" class="apple-btn-primary" onclick="document.getElementById('closeAuthBtn').click()">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 심플 입력 모달 -->
+  <div id="promptModal" class="apple-modal-backdrop is-hidden no-print" role="dialog" aria-modal="true">
+    <div class="apple-sheet prompt-sheet">
+      <h3 id="promptTitle">이름 입력</h3>
+      <input type="text" id="promptInput" class="apple-input" />
+      <div id="promptSelectWrapper" class="prompt-select-wrapper is-hidden">
+        <label for="promptFolderSelect">위치</label>
+        <select id="promptFolderSelect" class="apple-select full"></select>
+      </div>
+      <div class="prompt-actions">
+        <button type="button" id="promptCancelBtn" class="apple-btn-secondary">취소</button>
+        <button type="button" id="promptConfirmBtn" class="apple-btn-primary">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
