@@ -28,6 +28,10 @@ const INTERACTIVE_STEPS = [
   }
 ];
 
+// Google OAuth 2.0 & OIDC 기본 Web Client ID (Google Cloud Console 설정값)
+const DEFAULT_GOOGLE_OAUTH_CLIENT_ID =
+  '138306417950-50vlg50lqrpc0pjso12222javsts3s6m.apps.googleusercontent.com';
+
 class App {
   constructor() {
     this.storage = new StorageManager((status) => this.updateSyncBadge(status));
@@ -35,18 +39,35 @@ class App {
     this.guideActive = false;
     this.guideStep = 0;
     this.toastTimer = null;
+    this.googleTokenClient = null;
 
     this.cacheDOM();
     this.initEditor();
     this.bindGlobalEvents();
     this.renderAll();
 
-    // 로그인 상태 확인: 로그인 전이면 초기 로그인 화면 표시, 로그인 상태면 에디터 진입
-    if (!this.storage.isLoggedIn) {
-      this.showLoginGate();
-    } else {
-      this.hideLoginGateAndStart();
+    // URL 해시(#access_token / #id_token)로 돌아온 Google OAuth 2.0 & OIDC 리다이렉트 콜백 처리
+    this.handleGoogleOAuthRedirectCallback().then((handled) => {
+      if (handled) return;
+      if (!this.storage.isLoggedIn) {
+        this.showLoginGate();
+      } else {
+        this.hideLoginGateAndStart();
+      }
+    });
+  }
+
+  getGoogleClientId() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const fromQuery = urlParams.get('client_id');
+    if (fromQuery && fromQuery.endsWith('.apps.googleusercontent.com')) {
+      localStorage.setItem('outline_note_google_oauth_client_id', fromQuery.trim());
+      return fromQuery.trim();
     }
+    return (
+      localStorage.getItem('outline_note_google_oauth_client_id') ||
+      DEFAULT_GOOGLE_OAUTH_CLIENT_ID
+    );
   }
 
   focusFirstLine() {
@@ -57,16 +78,11 @@ class App {
   }
 
   cacheDOM() {
-    // 초기 로그인 게이트 화면 (단일 Google 로그인 버튼 + Google 계정 선택 모달)
+    // 초기 로그인 게이트 화면 (단일 Google OAuth 2.0 & OIDC 버튼)
     this.loginScreenGate = document.getElementById('loginScreenGate');
     this.gateGoogleOAuthBtn = document.getElementById('gateGoogleOAuthBtn');
-    this.googleChooserModal = document.getElementById('googleChooserModal');
-    this.googleChooserList = document.getElementById('googleChooserList');
-    this.googleCustomEmailForm = document.getElementById('googleCustomEmailForm');
-    this.googleCustomEmailInput = document.getElementById('googleCustomEmailInput');
-    this.googleCancelCustomBtn = document.getElementById('googleCancelCustomBtn');
-    this.useAnotherGoogleBtn = document.getElementById('useAnotherGoogleBtn');
-    this.closeGoogleChooserBtn = document.getElementById('closeGoogleChooserBtn');
+    this.googleGsiButtonContainer = document.getElementById('googleGsiButtonContainer');
+    this.oauthErrorNotice = document.getElementById('oauthErrorNotice');
 
     // 저장 완료 토스트
     this.saveToast = document.getElementById('saveToast');
@@ -154,19 +170,18 @@ class App {
     return Math.min(7, Math.max(5, Number(this.storage.state.settings.maxHeadLevels) || 5));
   }
 
-  // --- 초기 로그인 게이트 화면 및 Google 계정 선택 창 제어 ---
+  // --- 초기 로그인 게이트 화면 및 Google OAuth 2.0 & OIDC 인증 제어 ---
 
   showLoginGate() {
     if (this.guideActive) {
       this.guideCoachmark.classList.add('is-hidden');
       this.clearCoachHighlights();
     }
-    this.googleChooserModal.classList.add('is-hidden');
     this.loginScreenGate.classList.remove('is-hidden');
+    this.initGoogleIdentityServices();
   }
 
   hideLoginGateAndStart() {
-    this.googleChooserModal.classList.add('is-hidden');
     this.loginScreenGate.classList.add('is-hidden');
     this.renderAll();
 
@@ -178,54 +193,165 @@ class App {
     }
   }
 
-  openGoogleAccountChooser() {
-    this.renderGoogleChooserAccounts();
-    this.googleCustomEmailForm.classList.add('is-hidden');
-    this.useAnotherGoogleBtn.classList.remove('is-hidden');
-    this.googleChooserModal.classList.remove('is-hidden');
+  decodeOidcJwtPayload(jwtToken) {
+    const parts = String(jwtToken || '').split('.');
+    if (parts.length !== 3) throw new Error('유효하지 않은 OIDC ID 토큰입니다.');
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const jsonPayload = decodeURIComponent(
+      atob(padded)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload);
   }
 
-  closeGoogleAccountChooser() {
-    this.googleChooserModal.classList.add('is-hidden');
+  async fetchGoogleOidcUserInfo(accessToken) {
+    const res = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json'
+      }
+    });
+    if (!res.ok) {
+      throw new Error('Google OIDC 사용자 정보를 가져오지 못했습니다.');
+    }
+    return await res.json();
   }
 
-  renderGoogleChooserAccounts() {
-    let users = this.storage.getSavedUsersList();
-    if (!users || users.length === 0) {
-      // 저장된 계정이 없을 때 기본 Google 계정을 1개 제공하여 클릭 1번으로도 즉시 시작 가능하게 함
-      users = [
-        {
-          uid: 'user_google_default',
-          displayName: 'Google 사용자',
-          email: 'my.account@gmail.com',
-          provider: 'google-local'
-        }
-      ];
+  completeGoogleOidcLogin(oidcProfile) {
+    const email = (oidcProfile.email || '').trim().toLowerCase();
+    const displayName = (oidcProfile.name || oidcProfile.given_name || email.split('@')[0] || 'Google 사용자').trim();
+    const sub = oidcProfile.sub || email;
+    this.storage.switchOrLoginGoogleProfile({
+      uid: `google_oidc_${sub}`,
+      displayName,
+      email
+    });
+    if (this.oauthErrorNotice) {
+      this.oauthErrorNotice.classList.add('is-hidden');
+    }
+    this.closeAuthModal();
+    this.hideLoginGateAndStart();
+  }
+
+  async handleGoogleOAuthRedirectCallback() {
+    if (!window.location.hash || window.location.hash.length < 2) return false;
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const idToken = hashParams.get('id_token');
+    const accessToken = hashParams.get('access_token');
+    const error = hashParams.get('error');
+
+    if (!idToken && !accessToken && !error) return false;
+
+    // URL에서 토큰 해시 즉시 제거 (보안 유지)
+    window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+
+    if (error) {
+      this.showOAuthError(`Google OAuth 오류: ${error}`);
+      return false;
     }
 
-    this.googleChooserList.innerHTML = '';
-    users.forEach((u) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'g-account-row';
-      const initial = (u.displayName || u.email || 'G')[0].toUpperCase();
-      btn.innerHTML = `
-        <span class="g-row-avatar">${this.escapeHTML(initial)}</span>
-        <span class="g-row-meta">
-          <strong>${this.escapeHTML(u.displayName)}</strong>
-          <small>${this.escapeHTML(u.email)}</small>
-        </span>
-      `;
-      btn.addEventListener('click', () => {
-        this.storage.switchOrLoginGoogleProfile({
-          displayName: u.displayName,
-          email: u.email
-        });
-        this.closeAuthModal();
-        this.hideLoginGateAndStart();
+    try {
+      if (idToken) {
+        const claims = this.decodeOidcJwtPayload(idToken);
+        this.completeGoogleOidcLogin(claims);
+        return true;
+      }
+      if (accessToken) {
+        const userInfo = await this.fetchGoogleOidcUserInfo(accessToken);
+        this.completeGoogleOidcLogin(userInfo);
+        return true;
+      }
+    } catch (err) {
+      this.showOAuthError(err.message || 'Google 로그인 처리 중 오류가 발생했습니다.');
+    }
+    return false;
+  }
+
+  showOAuthError(msg) {
+    if (!this.oauthErrorNotice) return;
+    this.oauthErrorNotice.textContent = msg;
+    this.oauthErrorNotice.classList.remove('is-hidden');
+  }
+
+  initGoogleIdentityServices() {
+    const clientId = this.getGoogleClientId();
+    if (!window.google || !window.google.accounts) return;
+
+    // 1. OIDC ID Token 클라이언트 초기화
+    if (window.google.accounts.id) {
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: (response) => {
+          if (response && response.credential) {
+            try {
+              const claims = this.decodeOidcJwtPayload(response.credential);
+              this.completeGoogleOidcLogin(claims);
+            } catch (err) {
+              this.showOAuthError(err.message);
+            }
+          }
+        }
       });
-      this.googleChooserList.appendChild(btn);
-    });
+    }
+
+    // 2. OAuth 2.0 Token Client (openid email profile 스코프) 초기화
+    if (window.google.accounts.oauth2) {
+      this.googleTokenClient = window.google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: 'openid email profile',
+        prompt: 'select_account',
+        callback: async (tokenResponse) => {
+          if (tokenResponse && tokenResponse.error) {
+            this.showOAuthError(`Google 인증 실패: ${tokenResponse.error}`);
+            return;
+          }
+          if (tokenResponse && tokenResponse.access_token) {
+            try {
+              const userInfo = await this.fetchGoogleOidcUserInfo(tokenResponse.access_token);
+              this.completeGoogleOidcLogin(userInfo);
+            } catch (err) {
+              this.showOAuthError(err.message);
+            }
+          }
+        }
+      });
+    }
+  }
+
+  async startGoogleOAuth2AndOidcFlow() {
+    // 1순위: Firebase Google Auth가 활성화된 경우
+    if (this.storage.cloudReady) {
+      try {
+        await this.storage.signInWithRealFirebaseGoogle();
+        this.hideLoginGateAndStart();
+        return;
+      } catch {
+        // GIS OAuth 2.0 & OIDC로 진행
+      }
+    }
+
+    // 2순위: Google Identity Services (GIS) OAuth 2.0 & OIDC 팝업 실행
+    this.initGoogleIdentityServices();
+    if (this.googleTokenClient) {
+      this.googleTokenClient.requestAccessToken({ prompt: 'select_account' });
+      return;
+    }
+
+    // 3순위: GIS 스크립트 로드 전이거나 차단된 경우 표준 Google OAuth 2.0 & OIDC 엔드포인트로 직접 이동
+    const clientId = this.getGoogleClientId();
+    const redirectUri = window.location.origin + window.location.pathname;
+    const nonce = Math.random().toString(36).substring(2) + Date.now().toString(36);
+    const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+    authUrl.searchParams.set('client_id', clientId);
+    authUrl.searchParams.set('redirect_uri', redirectUri);
+    authUrl.searchParams.set('response_type', 'token id_token');
+    authUrl.searchParams.set('scope', 'openid email profile');
+    authUrl.searchParams.set('nonce', nonce);
+    authUrl.searchParams.set('prompt', 'select_account');
+    window.location.href = authUrl.toString();
   }
 
   // --- 명시적 수동 저장 + 토스트 표시 ---
@@ -277,48 +403,9 @@ class App {
   }
 
   bindGlobalEvents() {
-    // 초기 로그인 화면: 단일 Google 로그인 버튼 클릭
-    this.gateGoogleOAuthBtn.addEventListener('click', async () => {
-      if (this.storage.cloudReady) {
-        try {
-          await this.storage.signInWithRealFirebaseGoogle();
-          this.hideLoginGateAndStart();
-          return;
-        } catch {
-          // Firebase 팝업 실패 또는 미설정 시 Google 계정 선택 모달 오픈
-        }
-      }
-      this.openGoogleAccountChooser();
-    });
-
-    // Google 계정 선택 창 내부 이벤트
-    this.useAnotherGoogleBtn.addEventListener('click', () => {
-      this.useAnotherGoogleBtn.classList.add('is-hidden');
-      this.googleCustomEmailForm.classList.remove('is-hidden');
-      this.googleCustomEmailInput.value = '';
-      setTimeout(() => this.googleCustomEmailInput.focus(), 30);
-    });
-
-    this.googleCancelCustomBtn.addEventListener('click', () => {
-      this.googleCustomEmailForm.classList.add('is-hidden');
-      this.useAnotherGoogleBtn.classList.remove('is-hidden');
-    });
-
-    this.closeGoogleChooserBtn.addEventListener('click', () => {
-      this.closeGoogleAccountChooser();
-    });
-
-    this.googleCustomEmailForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      let email = this.googleCustomEmailInput.value.trim().toLowerCase();
-      if (!email) return;
-      if (!email.includes('@')) {
-        email = `${email}@gmail.com`;
-      }
-      const displayName = email.split('@')[0];
-      this.storage.switchOrLoginGoogleProfile({ displayName, email });
-      this.closeAuthModal();
-      this.hideLoginGateAndStart();
+    // 초기 로그인 화면: 단일 Google OAuth 2.0 & OIDC 로그인 버튼 클릭
+    this.gateGoogleOAuthBtn.addEventListener('click', () => {
+      this.startGoogleOAuth2AndOidcFlow();
     });
 
     // 로그아웃 버튼
@@ -532,9 +619,7 @@ class App {
     if (this.realGoogleLoginBtn) {
       this.realGoogleLoginBtn.addEventListener('click', () => {
         this.closeAuthModal();
-        this.loginScreenGate.classList.remove('is-hidden');
-        this.openGoogleAccountChooser();
-        this.useAnotherGoogleBtn.click();
+        this.startGoogleOAuth2AndOidcFlow();
       });
     }
 

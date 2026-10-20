@@ -289,15 +289,15 @@ export class StorageManager {
 
   // --- 로그인 및 프로필 전환 ---
 
-  switchOrLoginGoogleProfile({ displayName, email }) {
-    const cleanEmail = (email || displayName || 'student').trim().toLowerCase();
-    const uid = `user_${cleanEmail.replace(/[^a-z0-9가-힣]/g, '_')}`;
+  switchOrLoginGoogleProfile({ uid: customUid, displayName, email, photoURL = '' }) {
+    const cleanEmail = (email || displayName || 'user').trim().toLowerCase();
+    const uid = customUid || `user_${cleanEmail.replace(/[^a-z0-9가-힣]/g, '_')}`;
     const user = {
       uid,
       displayName: (displayName || cleanEmail.split('@')[0]).trim(),
-      email: cleanEmail.includes('@') ? cleanEmail : `${cleanEmail}@school.edu`,
-      photoURL: '',
-      provider: 'google-local'
+      email: cleanEmail,
+      photoURL,
+      provider: 'google-oidc'
     };
     this.currentUser = user;
     localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));

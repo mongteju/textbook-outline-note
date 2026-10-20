@@ -8,9 +8,11 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Noto+Serif+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./styles.css" />
+  <!-- Google Identity Services (OAuth 2.0 & OIDC 공식 SDK) -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-  <!-- 1. 초기 로그인 화면: 오직 Google 로그인 단일 버튼만 제공 -->
+  <!-- 1. 초기 로그인 화면: 오직 Google OAuth 2.0 & OIDC 로그인 단일 버튼만 제공 -->
   <section id="loginScreenGate" class="apple-login-gate no-print">
     <div class="login-gate-card">
       <div class="login-brand">
@@ -23,7 +25,7 @@
           </svg>
         </div>
         <h1>목차 노트</h1>
-        <p>Google 계정으로 로그인하면 교과서별 폴더와 문서가 자동 저장됩니다.</p>
+        <p>Google 계정(OAuth 2.0 &amp; OIDC)으로 로그인하면 교과서별 폴더와 문서가 자동 저장됩니다.</p>
       </div>
 
       <button type="button" id="gateGoogleOAuthBtn" class="gate-google-single-btn">
@@ -35,47 +37,11 @@
         </svg>
         <span>Google 계정으로 계속하기</span>
       </button>
-    </div>
 
-    <!-- Google 계정 선택 모달 (단일 버튼 클릭 시 즉시 작동하는 Google OAuth 계정 선택 창) -->
-    <div id="googleChooserModal" class="google-chooser-backdrop is-hidden">
-      <div class="google-chooser-card">
-        <div class="g-chooser-header">
-          <svg width="24" height="24" viewBox="0 0 48 48">
-            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-          </svg>
-          <h3>계정을 선택하세요</h3>
-          <p><strong>목차 노트</strong>(으)로 이동</p>
-        </div>
+      <!-- Google GIS 공식 버튼 렌더링 컨테이너 (필요 시 사용) -->
+      <div id="googleGsiButtonContainer" class="gsi-btn-container"></div>
 
-        <div id="googleChooserList" class="g-chooser-list"></div>
-
-        <form id="googleCustomEmailForm" class="g-custom-email-form is-hidden">
-          <input
-            type="email"
-            id="googleCustomEmailInput"
-            class="g-email-input"
-            placeholder="Google 이메일 입력 (예: myid@gmail.com)"
-            required
-          />
-          <div class="g-form-btns">
-            <button type="button" id="googleCancelCustomBtn" class="g-btn-text">취소</button>
-            <button type="submit" class="g-btn-contained">다음</button>
-          </div>
-        </form>
-
-        <button type="button" id="useAnotherGoogleBtn" class="g-another-account-btn">
-          <span class="g-plus-icon">+</span>
-          <span>다른 Google 계정 사용</span>
-        </button>
-
-        <div class="g-chooser-footer">
-          <button type="button" id="closeGoogleChooserBtn" class="g-btn-text">취소</button>
-        </div>
-      </div>
+      <p id="oauthErrorNotice" class="oauth-error-notice is-hidden"></p>
     </div>
   </section>
 
